@@ -225,8 +225,7 @@ tr:last-child td{border-bottom:0}
 (() => {
   'use strict';
   // ---- GOOGLE SHEET LOG. Paste your Apps Script web app URL; leave empty to use this browser only. ----
-  const SHEET_URL = 'https://script.google.com/macros/s/AKfycbwmunMMyYONohLTwvECBulcgQogDshD49fAner-KbTYuPQaa3qTOKkNDBXAZW6BKouTtg/exec
-';           
+  const SHEET_URL = 'https://script.google.com/macros/s/AKfycbwmunMMyYONohLTwvECBulcgQogDshD49fAner-KbTYuPQaa3qTOKkNDBXAZW6BKouTtg/exec';           // e.g. 'https://script.google.com/macros/s/AKfy.../exec'
   const LOCAL_ONLY_PASSWORD = 'admin123';  // used ONLY when no sheet is configured
   const dbOn = () => !!SHEET_URL;
   function saveEntry(entry) {
