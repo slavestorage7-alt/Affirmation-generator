@@ -237,8 +237,11 @@ tr:last-child td{border-bottom:0}
     }).catch(e => console.warn('Sheet save failed', e));
   }
   async function fetchSheet(pw) {
-    const r = await fetch(SHEET_URL + '?action=list&password=' + encodeURIComponent(pw));
-    const data = await r.json();
+    let data;
+    try {
+      const r = await fetch(SHEET_URL + '?action=list&password=' + encodeURIComponent(pw));
+      data = await r.json();
+    } catch { throw new Error('unreachable'); }
     if (!data.ok) throw new Error('unauthorized');
     return data.rows;
   }
@@ -378,8 +381,8 @@ tr:last-child td{border-bottom:0}
       else if (pw === LOCAL_ONLY_PASSWORD) rows = loadLog().slice().reverse().map(norm);
       else throw new Error('bad password');
       adminPw = pw; closePrompt(); renderTable(rows); adminOverlay.hidden = false;
-    } catch {
-      msg.textContent = dbOn() ? 'Wrong password, or the sheet can’t be reached.' : 'Wrong password.';
+    } catch (err) {
+      msg.textContent = (!dbOn() || err.message === 'unauthorized') ? 'Wrong password.' : 'Can’t reach your Google Sheet. Check the deployment access is set to Anyone.';
       $('pw').select();
     }
   });
