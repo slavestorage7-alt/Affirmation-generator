@@ -225,33 +225,44 @@ tr:last-child td{border-bottom:0}
       </div>
     </div>
     <div class="tablewrap" id="tablewrap"></div>
-    <p class="note">Entries are read from your Google Sheet when it is connected. Otherwise only this browser’s local copy is shown.</p>
+    <p class="note">Entries are read from your Supabase database when it is connected. Otherwise only this browser’s local copy is shown.</p>
   </div>
 </div>
 
 <script>
 (() => {
   'use strict';
-  // ---- GOOGLE SHEET LOG. Paste your Apps Script web app URL; leave empty to use this browser only. ----
-  const SHEET_URL = 'https://script.google.com/macros/s/AKfycbxIAUHnDuhm-oZsc3HwLwNR4SfhdRSVcbtyuj54PCXp9FP6ZyDLLZedNvNonBcDo0X8Ag/exec';           // e.g. 'https://script.google.com/macros/s/AKfy.../exec'
-  const LOCAL_ONLY_PASSWORD = 'admin123';  // used ONLY when no sheet is configured
-  const dbOn = () => !!SHEET_URL;
+  // ---- SUPABASE DATABASE. Paste your own values; leave both empty to use this browser only. ----
+  const SUPABASE_URL = 'https://yaxmdoetmkwejogmgfeg.supabase.co';        // e.g. 'https://abcdxyz.supabase.co'
+  const SUPABASE_ANON_KEY = 'sb_publishable_jSq-_yBxS8XgVGSB2EzF7A_Ux-pieVs';   // the anon / publishable key
+  const LOCAL_ONLY_PASSWORD = 'admin123';  // used ONLY when no database is configured
+  const dbOn = () => !!(SUPABASE_URL && SUPABASE_ANON_KEY);
+  const sbHeaders = () => {
+    const h = { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY };
+    if (SUPABASE_ANON_KEY.startsWith('eyJ')) h.Authorization = 'Bearer ' + SUPABASE_ANON_KEY;  // legacy JWT keys
+    return h;
+  };
+  async function rpc(fn, body) {
+    let r;
+    try {
+      const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 20000);
+      r = await fetch(SUPABASE_URL + '/rest/v1/rpc/' + fn, { method: 'POST', headers: sbHeaders(), body: JSON.stringify(body), signal: ctl.signal });
+      clearTimeout(to);
+    } catch { throw new Error('unreachable'); }
+    if (!r.ok) {
+      let msg = ''; try { msg = (await r.json()).message || ''; } catch {}
+      throw new Error(msg === 'unauthorized' ? 'unauthorized' : 'unreachable');
+    }
+    const txt = await r.text(); return txt ? JSON.parse(txt) : [];
+  }
+  const fetchDb = pw => rpc('admin_get_log', { p_password: pw });
   function saveEntry(entry) {
     const log = loadLog(); log.push(entry); saveLog(log);       // local backup
     if (!dbOn()) return;
-    fetch(SHEET_URL, {
-      method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ name: entry.name, place: entry.place, affirmation: entry.affirmation })
-    }).catch(e => console.warn('Sheet save failed', e));
-  }
-  async function fetchSheet(pw) {
-    let data;
-    try {
-      const r = await fetch(SHEET_URL + '?action=list&password=' + encodeURIComponent(pw));
-      data = await r.json();
-    } catch { throw new Error('unreachable'); }
-    if (!data.ok) throw new Error('unauthorized');
-    return data.rows;
+    fetch(SUPABASE_URL + '/rest/v1/affirmation_log', {
+      method: 'POST', headers: { ...sbHeaders(), Prefer: 'return=minimal' },
+      body: JSON.stringify({ name: entry.name, location: entry.place, affirmation: entry.affirmation })
+    }).then(r => { if (!r.ok) console.warn('Database insert failed', r.status); }).catch(e => console.warn('Database insert failed', e));
   }
   const STORE_KEY = 'affirmation_log_v1';
   const LOADING_MS = 3000;
@@ -382,17 +393,18 @@ tr:last-child td{border-bottom:0}
   $('pw-cancel').addEventListener('click', closePrompt);
   $('pw-form').addEventListener('submit', async e => {
     e.preventDefault();
-    const pw = $('pw').value, msg = $('pw-err'); msg.textContent = '';
+    const pw = $('pw').value, msg = $('pw-err'), btn = $('pw-form').querySelector('button[type=submit]');
+    msg.textContent = dbOn() ? 'Checking… this can take a few seconds.' : ''; btn.disabled = true;
     try {
       let rows;
-      if (dbOn()) rows = (await fetchSheet(pw)).map(norm);   // password is checked by your Apps Script
+      if (dbOn()) rows = (await fetchDb(pw)).map(norm);   // password is checked on the server
       else if (pw === LOCAL_ONLY_PASSWORD) rows = loadLog().slice().reverse().map(norm);
       else throw new Error('bad password');
-      adminPw = pw; closePrompt(); renderTable(rows); adminOverlay.hidden = false;
+      adminPw = pw; msg.textContent = ''; closePrompt(); renderTable(rows); adminOverlay.hidden = false;
     } catch (err) {
-      msg.textContent = (!dbOn() || err.message === 'unauthorized') ? 'Wrong password.' : 'Can’t reach your Google Sheet. Check the deployment access is set to Anyone.';
+      msg.textContent = (!dbOn() || err.message === 'unauthorized') ? 'Wrong password.' : 'Can’t reach the database. Check your Supabase URL and key, and that the SQL was run.';
       $('pw').select();
-    }
+    } finally { btn.disabled = false; }
   });
 
   let adminPw = '', currentRows = [];
@@ -416,7 +428,7 @@ tr:last-child td{border-bottom:0}
   $('clear').addEventListener('click', async () => {
     if (!confirm('Delete every entry in the log?')) return;
     saveLog([]);
-    if (dbOn()) alert('Cleared this browser’s local copy. To remove entries from the sheet, delete the rows in Google Sheets.');
+    if (dbOn()) { try { await rpc('admin_clear_log', { p_password: adminPw }); renderTable([]); } catch { alert('Could not clear the database log.'); } }
     else renderTable([]);
   });
   $('export').addEventListener('click', () => {
